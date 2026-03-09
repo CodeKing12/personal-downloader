@@ -426,6 +426,138 @@ function formatDuration(seconds: number | undefined): string | undefined {
 }
 
 /**
+ * Fetches video information from Instagram
+ * Uses a third-party API service to extract video data
+ */
+export async function fetchInstagramVideo(url: string): Promise<VideoInfo> {
+	try {
+		// Validate Instagram URL
+		if (!url.includes("instagram.com")) {
+			throw new Error("Invalid Instagram URL");
+		}
+
+		// Use RapidAPI's Instagram downloader service
+		const apiUrl = `https://instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com/?url=${encodeURIComponent(url)}`;
+
+		const response = await fetch(apiUrl, {
+			method: "GET",
+			headers: {
+				"X-RapidAPI-Key": process.env.RAPIDAPI_KEY || "YOUR_RAPIDAPI_KEY",
+				"X-RapidAPI-Host":
+					"instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com",
+			},
+		});
+
+		if (!response.ok) {
+			return await fetchInstagramFallback(url);
+		}
+
+		const data = await response.json();
+
+		if (!data || data.error) {
+			throw new Error(data?.message || "Failed to fetch Instagram video");
+		}
+
+		const formats: VideoFormat[] = [];
+
+		if (data.download_url) {
+			formats.push({
+				quality: "Original",
+				url: data.download_url,
+				format: "mp4",
+			});
+		}
+
+		if (Array.isArray(data.media)) {
+			for (const item of data.media) {
+				if (item.url && item.type === "video") {
+					formats.push({
+						quality: item.quality || "Standard",
+						url: item.url,
+						format: "mp4",
+					});
+				}
+			}
+		}
+
+		if (formats.length === 0) {
+			throw new Error(
+				"No video found at this Instagram URL. Please make sure it contains a video.",
+			);
+		}
+
+		return {
+			title: data.title || data.caption || "Instagram Video",
+			thumbnail: data.thumbnail || data.image || "",
+			formats,
+		};
+	} catch (error) {
+		console.error("Instagram fetch error:", error);
+		throw new Error(
+			error instanceof Error
+				? error.message
+				: "Failed to fetch Instagram video. Please try again.",
+		);
+	}
+}
+
+/**
+ * Fallback method for Instagram using alternative API
+ */
+async function fetchInstagramFallback(url: string): Promise<VideoInfo> {
+	try {
+		const apiUrl = `https://save-from-instagram.p.rapidapi.com/media?url=${encodeURIComponent(url)}`;
+
+		const response = await fetch(apiUrl, {
+			method: "GET",
+			headers: {
+				"X-RapidAPI-Key": process.env.RAPIDAPI_KEY || "YOUR_RAPIDAPI_KEY",
+				"X-RapidAPI-Host": "save-from-instagram.p.rapidapi.com",
+			},
+		});
+
+		if (!response.ok) {
+			throw new Error("Failed to fetch Instagram video");
+		}
+
+		const data = await response.json();
+
+		const formats: VideoFormat[] = [];
+
+		if (Array.isArray(data)) {
+			for (const item of data) {
+				if (item.url && (item.type === "video" || item.mimetype?.includes("video"))) {
+					formats.push({
+						quality: item.quality || item.dimensions || "Standard",
+						url: item.url,
+						format: "mp4",
+						size: item.filesize ? formatBytes(item.filesize) : undefined,
+					});
+				}
+			}
+		}
+
+		if (formats.length === 0) {
+			throw new Error(
+				"No video found at this Instagram URL. Make sure the post contains a video and is publicly accessible.",
+			);
+		}
+
+		return {
+			title: data[0]?.caption || "Instagram Video",
+			thumbnail: data[0]?.thumbnail || "",
+			formats,
+		};
+	} catch (error) {
+		throw new Error(
+			error instanceof Error
+				? error.message
+				: "Failed to extract Instagram video",
+		);
+	}
+}
+
+/**
  * Format bytes to human readable format
  */
 function formatBytes(bytes: number): string {
